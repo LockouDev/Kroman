@@ -31,7 +31,7 @@ function trimForEmbed(text: string, maxLength: number): string {
         return text
     }
 
-    return `${text.slice(0, maxLength - 1)}\u2026`
+    return `${text.slice(0, maxLength - 1)}…`
 }
 
 function getResponseContent(data: OpenRouterResponse): string {
@@ -75,7 +75,7 @@ const Command = {
         .addStringOption((Option) =>
             Option
                 .setName('prompt')
-                .setDescription('Pergunta ou instru\u00e7\u00e3o para a IA')
+                .setDescription('Pergunta ou instruções para a IA')
                 .setRequired(true)
                 .setMaxLength(MaxPromptLength),
         ),
@@ -85,7 +85,7 @@ const Command = {
 
         if (!isUserAuthorized(Interaction.user.id, 'ia', BotOwnerId)) {
             await Interaction.reply({
-                embeds: [buildErrorEmbed('Acesso negado', 'Voc\u00ea n\u00e3o est\u00e1 autorizado(a) a usar este comando')],
+                embeds: [buildErrorEmbed('Acesso negado', 'Você não está autorizado(a) a usar este comando')],
                 flags: MessageFlags.Ephemeral,
             })
             return
@@ -95,7 +95,7 @@ const Command = {
 
         if (!ApiKey) {
             await Interaction.reply({
-                embeds: [buildErrorEmbed('Configura\u00e7\u00e3o ausente', 'A chave da OX Alpha n\u00e3o foi configurada no bot')],
+                embeds: [buildErrorEmbed('Configuração ausente', 'A chave da OX Alpha não foi configurada no bot')],
                 flags: MessageFlags.Ephemeral,
             })
             return
@@ -105,7 +105,7 @@ const Command = {
 
         if (!Prompt) {
             await Interaction.reply({
-                embeds: [buildErrorEmbed('Prompt inv\u00e1lido', 'Envie uma pergunta ou instru\u00e7\u00e3o para a IA')],
+                embeds: [buildErrorEmbed('Prompt inválido', 'Envie uma pergunta ou instruções para a IA')],
                 flags: MessageFlags.Ephemeral,
             })
             return
@@ -130,7 +130,7 @@ const Command = {
                     messages: [
                         {
                             role: 'system',
-                            content: 'Voc\u00ea \u00e9 um assistente \u00fatil e claro. Responda em portugu\u00eas do Brasil, salvo se o usu\u00e1rio solicitar outro idioma. N\u00e3o revele seu racioc\u00ednio interno.',
+                            content: 'Você é um assistente útil e claro, Responda em português do Brasil, salvo se o usuário solicitar outro idioma, Não revele seu raciocínio interno',
                         },
                         {
                             role: 'user',
@@ -150,20 +150,20 @@ const Command = {
             if (!Response.ok) {
                 if (Response.status === 401 || Response.status === 403) {
                     await Interaction.editReply({
-                        embeds: [buildErrorEmbed('Falha de autentica\u00e7\u00e3o', 'A chave da OX Alpha foi recusada pelo OpenRouter')],
+                        embeds: [buildErrorEmbed('Falha de autenticação', 'A chave da OX Alpha foi recusada pelo OpenRouter')],
                     })
                     return
                 }
 
                 if (Response.status === 429) {
                     await Interaction.editReply({
-                        embeds: [buildErrorEmbed('Limite tempor\u00e1rio atingido', 'O OpenRouter limitou novas requisi\u00e7\u00f5es. Aguarde um pouco antes de tentar novamente')],
+                        embeds: [buildErrorEmbed('Limite temporário atingido', 'O OpenRouter limitou novas requisições, Aguarde um pouco antes de tentar novamente')],
                     })
                     return
                 }
 
                 await Interaction.editReply({
-                    embeds: [buildErrorEmbed('OX Alpha indispon\u00edvel', trimForEmbed(Data.error?.message ?? `O OpenRouter retornou o erro ${Response.status}`, MaxEmbedDescriptionLength))],
+                    embeds: [buildErrorEmbed('OX Alpha indisponível', trimForEmbed(Data.error?.message ?? `O OpenRouter retornou o erro ${Response.status}`, MaxEmbedDescriptionLength))],
                 })
                 return
             }
@@ -172,7 +172,7 @@ const Command = {
 
             if (!Answer) {
                 await Interaction.editReply({
-                    embeds: [buildErrorEmbed('Resposta vazia', 'A OX Alpha n\u00e3o retornou texto para esta pergunta')],
+                    embeds: [buildErrorEmbed('Resposta vazia', 'A OX Alpha não retornou texto para esta pergunta')],
                 })
                 return
             }
@@ -185,7 +185,7 @@ const Command = {
                     name: 'Prompt',
                     value: trimForEmbed(Prompt, 1_024),
                 })
-                .setFooter({ text: 'OpenRouter \u2022 stealth/ox-alpha' })
+                .setFooter({ text: 'OpenRouter • stealth/ox-alpha' })
                 .setTimestamp()
 
             await Interaction.editReply({
@@ -199,7 +199,7 @@ const Command = {
                     IsTimeout ? 'Tempo esgotado' : 'Erro ao consultar a IA',
                     IsTimeout
                         ? 'A OX Alpha demorou mais de 55 segundos para responder'
-                        : 'N\u00e3o foi poss\u00edvel consultar a OX Alpha agora. Tente novamente em alguns instantes',
+                        : 'Não foi possível consultar a OX Alpha agora. Tente novamente em alguns instantes',
                 )],
             })
         } finally {
