@@ -30,6 +30,14 @@ type RobloxThumbnailResponse = {
     }>
 }
 
+type PayoutEligibilityResult = {
+    eligible: boolean | null
+    raw: string
+}
+
+const IneligibleEmojiUrl = 'https://images-ext-1.discordapp.net/external/FPQpMeYLCSsEK4jy_iLZxWft2UjRvcX9U8HYwTr1N50/https/images.emojiterra.com/google/noto-emoji/animated-emoji/1f914.gif'
+const SuccessEmojiUrl = 'https://i.imgur.com/Qm2lbd3.png'
+
 const PythonCandidates: PythonAttempt[] =
     process.platform === 'win32'
         ? [
@@ -37,6 +45,7 @@ const PythonCandidates: PythonAttempt[] =
             { command: 'py', args: ['-3'] },
         ]
         : [
+            { command: Path.join(process.cwd(), '.venv', 'bin', 'python') },
             { command: 'python3' },
             { command: 'python' },
         ]
@@ -98,7 +107,7 @@ function summarizeOutput(stdout: string, stderr: string): {
         }
     }
 
-    if (output.includes('blocksession')) {
+    if (hasBlockSession(stdout, stderr)) {
         return {
             title: 'Sessão bloqueada',
             color: 0xed4245,
@@ -138,6 +147,10 @@ function extractRelevantLines(stdout: string, stderr: string): string {
 }
 
 function buildFailureReason(stdout: string, stderr: string): string | null {
+    if (hasBlockSession(stdout, stderr)) {
+        return 'A Roblox bloqueou esta sessão. Aprove a sessão no e-mail/segurança da conta, gere um COOKIE novo e tente novamente'
+    }
+
     const details = extractRelevantLines(stdout, stderr)
 
     if (!details || details === 'Sem saída relevante do script') {
@@ -157,6 +170,8 @@ function buildFailureReason(stdout: string, stderr: string): string | null {
         .filter(Boolean)
 
     const priorityMatchers = [
+        'blocksession depois do twostepverification',
+        'a roblox bloqueou a sessão',
         'erro final:',
         'mensagem inicial:',
         'continue chef body:',
@@ -174,6 +189,138 @@ function buildFailureReason(stdout: string, stderr: string): string | null {
     }
 
     return lines[lines.length - 1]?.slice(0, 250) ?? null
+}
+
+function getPaymentSucceeded(stdout: string, stderr: string): boolean {
+    return `${stdout}\n${stderr}`.includes('[PY] payout finalizado com sucesso')
+}
+
+function hasBlockSession(stdout: string, stderr: string): boolean {
+    return `${stdout}\n${stderr}`.toLowerCase().includes('blocksession')
+}
+
+function getPaymentRecipientIneligible(stdout: string, stderr: string): boolean {
+    const output = `${stdout}\n${stderr}`.toLowerCase()
+
+    return (
+        output.includes('not eligible') ||
+        output.includes('ineligible') ||
+        output.includes('noteligible') ||
+        output.includes('não é elegível') ||
+        output.includes('nao é elegivel') ||
+        output.includes('não elegível') ||
+        output.includes('nao elegivel')
+    )
+}
+
+function parseEligibilityValue(value: unknown): boolean | null {
+    if (typeof value === 'boolean') {
+        return value
+    }
+
+    if (typeof value === 'number') {
+        return value === 1
+    }
+
+    if (typeof value !== 'string') {
+        if (value && typeof value === 'object') {
+            const nestedValues = Object.values(value as Record<string, unknown>)
+
+            for (const nestedValue of nestedValues) {
+                const parsed = parseEligibilityValue(nestedValue)
+
+                if (parsed !== null) {
+                    return parsed
+                }
+            }
+        }
+
+        return null
+    }
+
+    const normalized = value
+        .toLowerCase()
+        .replace(/[\s_-]/g, '')
+
+    if (
+        normalized.includes('noteligible') ||
+        normalized.includes('ineligible') ||
+        normalized.includes('notpayouteligible') ||
+        normalized.includes('false') ||
+        normalized.includes('blocked') ||
+        normalized.includes('restricted') ||
+        normalized.includes('pending')
+    ) {
+        return false
+    }
+
+    if (
+        normalized === 'eligible' ||
+        normalized === 'true' ||
+        normalized === 'payouteligible' ||
+        normalized === 'canpayout'
+    ) {
+        return true
+    }
+
+    return null
+}
+
+function extractEligibility(data: any, userId: number): PayoutEligibilityResult {
+    const userKey = String(userId)
+    const raw = JSON.stringify(data)
+    const directCandidates = [
+        data?.usersGroupPayoutEligibility?.[userKey],
+        data?.userPayoutEligibility?.[userKey],
+        data?.payoutEligibility?.[userKey],
+        data?.eligibility?.[userKey],
+        data?.[userKey],
+        data?.isEligible,
+        data?.eligible,
+        data?.canPayout,
+    ]
+
+    for (const candidate of directCandidates) {
+        const parsed = parseEligibilityValue(candidate)
+
+        if (parsed !== null) {
+            return {
+                eligible: parsed,
+                raw,
+            }
+        }
+    }
+
+    const listedCandidate = Array.isArray(data?.data)
+        ? data.data.find((item: any) => String(item?.userId ?? item?.id) === userKey)
+        : null
+
+    if (listedCandidate) {
+        const listedValues = [
+            listedCandidate.isEligible,
+            listedCandidate.eligible,
+            listedCandidate.canPayout,
+            listedCandidate.status,
+            listedCandidate.eligibility,
+            listedCandidate.payoutEligibility,
+        ]
+
+        for (const candidate of listedValues) {
+            const parsed = parseEligibilityValue(candidate)
+
+            if (parsed !== null) {
+                return {
+                    eligible: parsed,
+                    raw,
+                }
+            }
+        }
+    }
+
+    return {
+        eligible: null,
+        raw,
+    }
 }
 
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -217,6 +364,84 @@ async function getRobloxAvatarHeadshot(userId: number): Promise<string | null> {
     )
 
     return response.data?.[0]?.imageUrl ?? null
+}
+
+async function getPayoutEligibility(userId: number): Promise<PayoutEligibilityResult> {
+    const Cookie = process.env.COOKIE
+    const GroupId = process.env.GROUPID ?? '15979531'
+
+    if (!Cookie) {
+        return {
+            eligible: null,
+            raw: 'COOKIE não definido',
+        }
+    }
+
+    const response = await fetch(
+        `https://economy.roblox.com/v1/groups/${GroupId}/users-payout-eligibility?userIds=${userId}`,
+        {
+            headers: {
+                Cookie: `.ROBLOSECURITY=${Cookie}`,
+            },
+        },
+    )
+
+    if (!response.ok) {
+        return {
+            eligible: null,
+            raw: `Elegibilidade retornou ${response.status}`,
+        }
+    }
+
+    const data = await response.json()
+
+    return extractEligibility(data, userId)
+}
+
+function buildIneligibleEmbed(robloxUser: RobloxUser, rawEligibility?: string): EmbedBuilder {
+    const Embed = new EmbedBuilder()
+        .setColor(0xed4245)
+        .setTitle('⚠ Usuário não é elegível para o pagamento')
+        .setDescription(`**${formatRobloxName(robloxUser)} ainda não é elegível para pagamento**\n\nSerá preciso esperar alguns dias para se tornar elegível, algo em torno de 4 dias ou 14 dias`)
+        .setThumbnail(IneligibleEmojiUrl)
+        .setTimestamp()
+
+    if (rawEligibility && process.env.NODE_ENV === 'development') {
+        Embed.addFields({
+            name: 'Elegibilidade',
+            value: `\`${rawEligibility.slice(0, 200)}\``,
+        })
+    }
+
+    return Embed
+}
+
+function formatRobloxName(robloxUser: RobloxUser): string {
+    if (robloxUser.displayName === robloxUser.name) {
+        return robloxUser.name
+    }
+
+    return `${robloxUser.displayName} (@${robloxUser.name})`
+}
+
+function buildSuccessEmbed(robloxUser: RobloxUser | null, player: string, amount: number): EmbedBuilder {
+    return new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle('<:Confirm:1315286412664508426> Pagamento Realizado com Sucesso!')
+        .setThumbnail(SuccessEmojiUrl)
+        .setTimestamp()
+        .addFields(
+            {
+                name: '<:Roblox:1314141291621126165> Player:',
+                value: `**${robloxUser ? formatRobloxName(robloxUser) : player}**`,
+                inline: true,
+            },
+            {
+                name: '<:Robux:1311957287178469447> Robux:',
+                value: `**${amount}**`,
+                inline: true,
+            },
+        )
 }
 
 const Command = {
@@ -272,9 +497,7 @@ const Command = {
             return
         }
 
-        await Interaction.deferReply({
-            flags: MessageFlags.Ephemeral,
-        })
+        await Interaction.deferReply()
 
         try {
             let robloxUser: RobloxUser | null = null
@@ -287,12 +510,38 @@ const Command = {
                 console.warn('[PAGAR] Não foi possível carregar perfil Roblox do destinatário:', profileError)
             }
 
-            const { stdout, stderr, commandUsed } = await runPagamentoScript(Player, Amount)
+            if (robloxUser) {
+                const eligibility = await getPayoutEligibility(robloxUser.id)
+
+                if (eligibility.eligible === false) {
+                    await Interaction.editReply({
+                        embeds: [buildIneligibleEmbed(robloxUser, eligibility.raw)],
+                    })
+                    return
+                }
+            }
+
+            const { stdout, stderr } = await runPagamentoScript(Player, Amount)
             const summary = summarizeOutput(stdout, stderr)
             const failureReason = buildFailureReason(stdout, stderr)
+            const paymentSucceeded = getPaymentSucceeded(stdout, stderr)
             const profileUrl = robloxUser
                 ? `https://www.roblox.com/users/${robloxUser.id}/profile`
                 : null
+
+            if (paymentSucceeded) {
+                await Interaction.editReply({
+                    embeds: [buildSuccessEmbed(robloxUser, Player, Amount)],
+                })
+                return
+            }
+
+            if (robloxUser && getPaymentRecipientIneligible(stdout, stderr)) {
+                await Interaction.editReply({
+                    embeds: [buildIneligibleEmbed(robloxUser)],
+                })
+                return
+            }
 
             const Embed = new EmbedBuilder()
                 .setColor(summary.color)
@@ -303,7 +552,7 @@ const Command = {
                     {
                         name: 'Player',
                         value: robloxUser
-                            ? `**${robloxUser.displayName}** (@${robloxUser.name})`
+                            ? `**${formatRobloxName(robloxUser)}**`
                             : `\`${Player}\``,
                         inline: true,
                     },
