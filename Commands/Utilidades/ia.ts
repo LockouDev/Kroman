@@ -12,6 +12,7 @@ const Model = 'stealth/ox-alpha'
 const RequestTimeoutMs = 55_000
 const MaxPromptLength = 4_000
 const MaxEmbedDescriptionLength = 4_000
+const MaxDiscordMessageLength = 2_000
 
 type OpenRouterResponse = {
     choices?: Array<{
@@ -57,6 +58,48 @@ function buildErrorEmbed(title: string, description: string): EmbedBuilder {
         .setTitle(title)
         .setDescription(description)
         .setTimestamp()
+}
+
+function buildPromptEmbed(prompt: string): EmbedBuilder {
+    return new EmbedBuilder()
+        .setColor(0x98f768)
+        .setTitle('OX Alpha')
+        .setDescription(`**Prompt**\n${trimForEmbed(prompt, MaxEmbedDescriptionLength - 12)}`)
+}
+
+function countCodeFences(text: string): number {
+    return text.match(/```/g)?.length ?? 0
+}
+
+function splitDiscordMessage(content: string): string[] {
+    const Chunks: string[] = []
+    let Remaining = content.trim()
+    let IsInsideCodeBlock = false
+
+    while (Remaining.length > 0) {
+        const Prefix = IsInsideCodeBlock ? '```\n' : ''
+        const MaxChunkLength = MaxDiscordMessageLength - Prefix.length - 4
+        let CutAt = Math.min(Remaining.length, MaxChunkLength)
+
+        if (CutAt < Remaining.length) {
+            const LastLineBreak = Remaining.lastIndexOf('\n', CutAt)
+
+            if (LastLineBreak > MaxChunkLength / 2) {
+                CutAt = LastLineBreak
+            }
+        }
+
+        const Segment = Remaining.slice(0, CutAt).trimEnd()
+        Remaining = Remaining.slice(CutAt).trimStart()
+
+        const EndsInsideCodeBlock = IsInsideCodeBlock !== (countCodeFences(Segment) % 2 === 1)
+        const Suffix = EndsInsideCodeBlock ? '\n```' : ''
+
+        Chunks.push(`${Prefix}${Segment}${Suffix}`)
+        IsInsideCodeBlock = EndsInsideCodeBlock
+    }
+
+    return Chunks
 }
 
 const Command = {
@@ -130,7 +173,7 @@ const Command = {
                     messages: [
                         {
                             role: 'system',
-                            content: 'Você é um assistente útil e claro, Responda em português do Brasil, salvo se o usuário solicitar outro idioma, Não revele seu raciocínio interno',
+                            content: 'Você é um assistente útil e claro, Responda em português do Brasil, salvo se o usuário solicitar outro idioma, Não revele seu raciocínio interno, Você pode pesquisar na internet quando a pergunta exigir informações atuais ou verificação de fatos, Ao usar pesquisa, cite os links das fontes relevantes na resposta',
                         },
                         {
                             role: 'user',
@@ -141,6 +184,11 @@ const Command = {
                     reasoning: {
                         exclude: true,
                     },
+                    plugins: [
+                        {
+                            id: 'web',
+                        },
+                    ],
                 }),
                 signal: Controller.signal,
             })
@@ -177,20 +225,18 @@ const Command = {
                 return
             }
 
-            const Embed = new EmbedBuilder()
-                .setColor(0x98f768)
-                .setTitle('OX Alpha')
-                .setDescription(trimForEmbed(Answer, MaxEmbedDescriptionLength))
-                .addFields({
-                    name: 'Prompt',
-                    value: trimForEmbed(Prompt, 1_024),
-                })
-                .setFooter({ text: 'OpenRouter • stealth/ox-alpha' })
-                .setTimestamp()
-
             await Interaction.editReply({
-                embeds: [Embed],
+                embeds: [buildPromptEmbed(Prompt)],
             })
+
+            for (const Chunk of splitDiscordMessage(Answer)) {
+                await Interaction.followUp({
+                    content: Chunk,
+                    allowedMentions: {
+                        parse: [],
+                    },
+                })
+            }
         } catch (Error) {
             const IsTimeout = Error instanceof Error && Error.name === 'AbortError'
 
