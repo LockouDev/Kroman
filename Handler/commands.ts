@@ -41,20 +41,14 @@ export default async function CommandsHandler(Client: any): Promise<void> {
 
             const FolderPath = Path.join(CommandsRoot, Folder.name);
             const Files = await Fs.readdir(FolderPath, { withFileTypes: true });
-            const DisabledCommands = new Set(
-                Files
-                    .filter((File) => File.isFile() && File.name.endsWith('.disabled'))
-                    .map((File) => File.name.slice(0, -'.disabled'.length)),
-            );
+            for (const File of Files) {
+                if (File.isFile() && File.name.endsWith('.ts.disabled')) {
+                    console.log(`[COMMANDS] Comando desabilitado: ${Folder.name}/${File.name}`);
+                }
+            }
 
             for (const File of Files) {
                 if (!File.isFile() || !File.name.endsWith('.ts')) {
-                    continue;
-                }
-
-                const CommandFileName = Path.parse(File.name).name;
-                if (DisabledCommands.has(CommandFileName)) {
-                    console.log(`[COMMANDS] Comando desabilitado: ${Folder.name}/${File.name}`);
                     continue;
                 }
 
@@ -201,7 +195,7 @@ function NormalizeOptions(Options: CommandData[]): CommandData[] {
                 );
             }
 
-            if (Option.options) {
+            if (Option.options?.length > 0) {
                 Normalized.options = NormalizeOptions(Option.options);
             }
 
