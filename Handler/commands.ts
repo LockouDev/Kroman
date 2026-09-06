@@ -29,6 +29,7 @@ export default async function CommandsHandler(Client: any): Promise<void> {
     const GlobalSlashCommands = new Collection<string, CommandModule>();
     const LoadedLocalCommands: CommandData[] = [];
     const LoadedGlobalCommands: CommandData[] = [];
+    let HasCommandLoadFailure = false;
 
     try {
         const CommandsRoot = Path.resolve(process.cwd(), 'Commands');
@@ -59,6 +60,7 @@ export default async function CommandsHandler(Client: any): Promise<void> {
 
                     if (!Command?.data || typeof Command.run !== 'function') {
                         console.warn(`[COMMANDS] Comando "${File.name}" esta incompleto.`);
+                        HasCommandLoadFailure = true;
                         continue;
                     }
 
@@ -72,6 +74,7 @@ export default async function CommandsHandler(Client: any): Promise<void> {
                     GlobalSlashCommands.set(Command.data.name, Command);
                     LoadedGlobalCommands.push(JsonCommand);
                 } catch (Error) {
+                    HasCommandLoadFailure = true;
                     console.error(`[COMMANDS] Falha ao carregar "${Folder.name}/${File.name}":`, Error);
                 }
             }
@@ -80,6 +83,13 @@ export default async function CommandsHandler(Client: any): Promise<void> {
         Client.slashCommands = { local: LocalSlashCommands, global: GlobalSlashCommands };
 
         Client.once('clientReady', async () => {
+            if (HasCommandLoadFailure) {
+                console.error(
+                    '[COMMANDS] Sincronizacao ignorada porque um ou mais comandos falharam ao carregar. Os comandos ja publicados foram preservados.',
+                );
+                return;
+            }
+
             const GuildId = process.env.DISCORD_GUILD_ID;
 
             if (GuildId) {

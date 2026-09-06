@@ -17,7 +17,8 @@
     "mime": "^4.1.0",
     "noblox.js": "^9.0.0",
     "node-fetch": "^3.3.2",
-    "otpauth": "^9.5.0"
+    "otpauth": "^9.5.0",
+    "sharp": "^0.35.4"
   },
   "trustedDependencies": [
     "noblox.js",

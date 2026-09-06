@@ -194,10 +194,10 @@ const Command = {
                 embeds: [embed],
                 files: [attachment],
             });
-        } catch (Error) {
-            console.error('[ROUPA] Erro ao buscar roupa:', Error);
+        } catch (error) {
+            console.error('[ROUPA] Erro ao buscar roupa:', error);
 
-            const message = Error instanceof Error ? Error.message : 'Erro desconhecido';
+            const message = error instanceof Error ? error.message : 'Erro desconhecido';
 
             await Interaction.editReply({
                 content: `Nao foi possivel buscar essa roupa\nMotivo: ${message}`,
